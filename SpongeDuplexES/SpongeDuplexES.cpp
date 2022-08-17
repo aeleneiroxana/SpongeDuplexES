@@ -28,7 +28,7 @@ typedef union {
 typedef struct {
 	int r;
 	int c;
-	byte* bytes;
+	byte bytes[STATE_SIZE];
 }state;
 #pragma endregion
 
@@ -103,50 +103,25 @@ void updatePermutation(byte value, int* v)
 	bool andSum = (value.val == 128);
 	int orSum = (value.val == 0);
 
-	if (value.b5)
+	if (value.b5 ^ value.b1)
 	{
 		int aux = v[0];
 		v[0] = v[2];
 		v[2] = aux;
 	}
-	if (value.b6)
+	if (value.b6 ^ value.b2)
 	{
 		int aux = v[1];
 		v[1] = v[3];
 		v[3] = aux;
 	}
-	if (value.b7)
+	if (value.b7 ^ value.b3)
 	{
 		int aux = v[0];
 		v[0] = v[1];
 		v[1] = aux;
 	}
-	if (value.b4)
-	{
-		int aux = v[2];
-		v[2] = v[3];
-		v[3] = aux;
-	}
-
-	if (value.b1)
-	{
-		int aux = v[0];
-		v[0] = v[2];
-		v[2] = aux;
-	}
-	if (value.b2)
-	{
-		int aux = v[1];
-		v[1] = v[3];
-		v[3] = aux;
-	}
-	if (value.b3)
-	{
-		int aux = v[0];
-		v[0] = v[1];
-		v[1] = aux;
-	}
-	if (value.b0)
+	if (value.b4 ^ value.b0)
 	{
 		int aux = v[2];
 		v[2] = v[3];
@@ -192,7 +167,7 @@ int each(byte* bytes, unsigned long long size, unsigned long long blockSize) {
 	for (unsigned long long i = 0; i < size; i += blockSize)
 		sum += bytes[i].val;
 
-	return (sum % 107) + 11;
+	return (sum % 23) + 8;
 }
 
 void clearBytes(byte* bytes, unsigned long long size) {
@@ -201,13 +176,41 @@ void clearBytes(byte* bytes, unsigned long long size) {
 	}
 }
 
+int mergeBytes(byte msb, byte lsb) {
+	byte result;
+	result.val = 0;
+	result.b0 = msb.b4;
+	result.b1 = msb.b5;
+	result.b2 = msb.b6;
+	result.b3 = msb.b7;
+	result.b4 = lsb.b4;
+	result.b5 = lsb.b5;
+	result.b6 = lsb.b6;
+	result.b7 = lsb.b7;
+
+	return result.val;
+}
+
 #pragma endregion
 
 #pragma region F Function
 
-int sbox(byte input) {
+int sbox(byte input, bool lsb = true) {
 	byte output = { 0 };
-	int x[4] = { input.b4, input.b5, input.b6, input.b7 };
+	int x[4];
+	if (lsb)
+	{
+		x[0] = input.b4;
+		x[1] = input.b5;
+		x[2] = input.b6;
+		x[3] = input.b7;
+	}
+	else {
+		x[0] = input.b0;
+		x[1] = input.b1;
+		x[2] = input.b2;
+		x[3] = input.b3;
+	}
 	output.b4 = x[0] ^ x[1] ^ x[3] ^ 1;
 	output.b5 = x[0] ^ x[2] ^ x[3];
 	output.b6 = x[1] ^ x[2] ^ x[3];
@@ -219,18 +222,20 @@ int sbox(byte input) {
 void sbox(state& s) {
 	int blockSize = STATE_SIZE / 4;
 
-	byte w0[STATE_SIZE / 4], w1[STATE_SIZE / 4], w2[STATE_SIZE / 4], w3[STATE_SIZE / 4], defVal[STATE_SIZE / 4];
-	for (unsigned long long i = 0; i < blockSize; i++)
-		defVal[i].val = 128;
-	xorBytes(s.bytes, s.bytes + blockSize, w0, blockSize);
-	xorBytes(w0, s.bytes + 3 * blockSize, w0, blockSize);
-	xorBytes(w0, defVal, w0, blockSize);
-	xorBytes(s.bytes, s.bytes + 2 * blockSize, w1, blockSize);
-	xorBytes(w1, s.bytes + 3 * blockSize, w1, blockSize);
-	xorBytes(s.bytes + blockSize, s.bytes + 2 * blockSize, w2, blockSize);
-	xorBytes(w2, s.bytes + 3 * blockSize, w2, blockSize);
-	copyBytes(w3, s.bytes, blockSize);
+	byte w0[STATE_SIZE / 4], w1[STATE_SIZE / 4], w2[STATE_SIZE / 4], w3[STATE_SIZE / 4];
+	copyBytes(w0, s.bytes, blockSize);
+	copyBytes(w1, s.bytes + blockSize, blockSize);
+	copyBytes(w2, s.bytes + 2 * blockSize, blockSize);
+	copyBytes(w3, s.bytes + 3 * blockSize, blockSize);
 
+	for (int i = 0; i < blockSize; i++) {
+		byte answ[8] = { sbox(w0[i],false), sbox(w0[i]),sbox(w1[i],false), sbox(w1[i]), sbox(w2[i],false), sbox(w2[i]), sbox(w3[i],false), sbox(w3[i]) };
+
+		w0[i].val = mergeBytes(answ[0], answ[1]);
+		w1[i].val = mergeBytes(answ[2], answ[3]);
+		w2[i].val = mergeBytes(answ[4], answ[5]);
+		w3[i].val = mergeBytes(answ[6], answ[7]);
+	}
 	copyBytes(s.bytes, w0, blockSize);
 	copyBytes(s.bytes, w1, blockSize, 1 * blockSize);
 	copyBytes(s.bytes, w2, blockSize, 2 * blockSize);
@@ -238,17 +243,29 @@ void sbox(state& s) {
 }
 
 void pbox(state& s) {
-	int blockSize = STATE_SIZE / 4;
-	byte w0[STATE_SIZE / 4], w1[STATE_SIZE / 4], w2[STATE_SIZE / 4], w3[STATE_SIZE / 4];
-	shuffleBytes(s.bytes, w0, blockSize);
-	shuffleBytes(s.bytes + 1 * blockSize, w1, blockSize);
-	shuffleBytes(s.bytes + 2 * blockSize, w2, blockSize);
-	shuffleBytes(s.bytes + 3 * blockSize, w3, blockSize);
-
-	copyBytes(s.bytes, w0, blockSize);
-	copyBytes(s.bytes, w1, blockSize, 1 * blockSize);
-	copyBytes(s.bytes, w2, blockSize, 2 * blockSize);
-	copyBytes(s.bytes, w3, blockSize, 3 * blockSize);
+	byte word[4], shuffled[4];
+	for (int i = 0; i < STATE_SIZE; i++) {
+		int pos = i + 1, cnt = 1;
+		word[0].val = s.bytes[i].val;
+		while (cnt < 4) {
+			if (pos >= STATE_SIZE)
+				pos = pos % STATE_SIZE;
+			word[cnt].val = s.bytes[pos].val;
+			cnt++;
+			pos++;
+		}
+		shuffleBytes(word, shuffled, 4);
+		cnt = 1;
+		pos = i + 1;
+		s.bytes[i].val = shuffled[0].val;
+		while (cnt < 4) {
+			if (pos >= STATE_SIZE)
+				pos = pos % STATE_SIZE;
+			s.bytes[pos].val = shuffled[cnt].val;
+			cnt++;
+			pos++;
+		}
+	}
 }
 
 void f(state& s, int rounds) {
@@ -256,11 +273,6 @@ void f(state& s, int rounds) {
 		sbox(s);
 		pbox(s);
 	}
-
-	if (rounds % 2)
-		sbox(s);
-	else
-		pbox(s);
 }
 
 #pragma endregion
@@ -385,7 +397,6 @@ int main()
 	key = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	iv = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	state s = { BITRATE, STATE_SIZE - BITRATE };
-	s.bytes = (byte*)malloc(sizeof(byte) * STATE_SIZE);
 
 	for (int i = 0; i < DEFAULT_SIZE; i++)
 	{
@@ -416,10 +427,6 @@ int main()
 	printChars(plaintext, plaintextSize);
 	cout << "CIPHERTEXT BYTES: ";
 	printBytes(ciphertext, plaintextSize + DEFAULT_SIZE);
-	cout << "TAG BYTES: ";
-	printBytes(t, DEFAULT_SIZE);
-	cout << "AUX BYTES: ";
-	printBytes(aux, DEFAULT_SIZE * (plaintextSize / BITRATE));
 	cout << endl << endl;
 
 	initializeState(s, key, iv);
@@ -431,10 +438,6 @@ int main()
 	byte* rt = getTag(s, aux, ciphertext, plaintextSize);
 	cout << "PLAINTEXT TEXT: ";
 	printChars(plaintext, plaintextSize);
-	cout << "TAG BYTES: ";
-	printBytes(rt, DEFAULT_SIZE);
-	cout << "AUX BYTES: ";
-	printBytes(aux, DEFAULT_SIZE * (plaintextSize / BITRATE));
 	if (validTag(t, rt))
 		cout << "VALID TAG";
 	else
@@ -442,7 +445,6 @@ int main()
 
 	free(key);
 	free(iv);
-	free(s.bytes);
 	free(ad);
 	free(adChar);
 	free(plaintext);
