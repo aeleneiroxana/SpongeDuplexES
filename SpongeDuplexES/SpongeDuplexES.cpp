@@ -9,6 +9,8 @@
 
 using namespace std;
 
+char defaultValue = DEFAULT_SIZE * 8;
+
 #pragma region Data Types
 
 typedef union {
@@ -56,14 +58,14 @@ char* readFile(const char fileName[]) {
 
 #pragma region Printing Data
 
-void printBytes(byte value[], int size)
+void printBytes(byte value[], unsigned long long size)
 {
 	for (unsigned long long i = 0; i < size; i++)
-		cout << (int)value[i].val << " ";
+		printf("%3d ", value[i].val);
 	cout << endl;
 }
 
-void printChars(byte value[], int size)
+void printChars(byte value[], unsigned long long size)
 {
 	for (unsigned long long i = 0; i < size; i++)
 		cout << value[i].val;
@@ -75,7 +77,7 @@ void printState(state s)
 	for (unsigned long long i = 0; i < STATE_SIZE; i++)
 	{
 		cout << (int)s.bytes[i].val << " ";
-		if (i % 16 == 15)
+		if (i % DEFAULT_SIZE == DEFAULT_SIZE - 1)
 			cout << endl;
 	}
 	cout << endl;
@@ -92,15 +94,14 @@ void copyBytes(byte* dest, byte* source, unsigned long long size, unsigned long 
 
 void invert(byte* value, byte* invertedValue, unsigned long long size)
 {
-	char defaultValue = 128;
 	for (unsigned long long i = 0; i < size; i++) {
-		invertedValue[i].val = value[i].val ^ 128;
+		invertedValue[i].val = value[i].val ^ defaultValue;
 	}
 }
 
 void updatePermutation(byte value, int* v)
 {
-	bool andSum = (value.val == 128);
+	bool andSum = (value.val == defaultValue);
 	int orSum = (value.val == 0);
 
 	if (value.b5 ^ value.b1)
@@ -167,7 +168,8 @@ int each(byte* bytes, unsigned long long size, unsigned long long blockSize) {
 	for (unsigned long long i = 0; i < size; i += blockSize)
 		sum += bytes[i].val;
 
-	return (sum % 23) + 8;
+	int value = (sum % 47) + 16;
+	return value;
 }
 
 void clearBytes(byte* bytes, unsigned long long size) {
@@ -229,7 +231,46 @@ void sbox(state& s) {
 	copyBytes(w3, s.bytes + 3 * blockSize, blockSize);
 
 	for (int i = 0; i < blockSize; i++) {
-		byte answ[8] = { sbox(w0[i],false), sbox(w0[i]),sbox(w1[i],false), sbox(w1[i]), sbox(w2[i],false), sbox(w2[i]), sbox(w3[i],false), sbox(w3[i]) };
+		byte ans[8], answ[8];
+
+		ans[0].b4 = w0[i].b0;
+		ans[0].b5 = w1[i].b0;
+		ans[0].b6 = w2[i].b0;
+		ans[0].b7 = w3[i].b0;
+		ans[1].b4 = w0[i].b1;
+		ans[1].b5 = w1[i].b1;
+		ans[1].b6 = w2[i].b1;
+		ans[1].b7 = w3[i].b1;
+		ans[2].b4 = w0[i].b2;
+		ans[2].b5 = w1[i].b2;
+		ans[2].b6 = w2[i].b2;
+		ans[2].b7 = w3[i].b2;
+		ans[3].b4 = w0[i].b3;
+		ans[3].b5 = w1[i].b3;
+		ans[3].b6 = w2[i].b3;
+		ans[3].b7 = w3[i].b3;
+		ans[4].b4 = w0[i].b4;
+		ans[4].b5 = w1[i].b4;
+		ans[4].b6 = w2[i].b4;
+		ans[4].b7 = w3[i].b4;
+		ans[5].b4 = w0[i].b5;
+		ans[5].b5 = w1[i].b5;
+		ans[5].b6 = w2[i].b5;
+		ans[5].b7 = w3[i].b5;
+		ans[6].b4 = w0[i].b6;
+		ans[6].b5 = w1[i].b6;
+		ans[6].b6 = w2[i].b6;
+		ans[6].b7 = w3[i].b6;
+		ans[7].b4 = w0[i].b7;
+		ans[7].b5 = w1[i].b7;
+		ans[7].b6 = w2[i].b7;
+		ans[7].b7 = w3[i].b7;
+
+		for (int j = 0; j < 8; j += 2)
+		{
+			answ[j].val = sbox(ans[j]);
+			answ[j + 1].val = sbox(ans[j + 1]);
+		}
 
 		w0[i].val = mergeBytes(answ[0], answ[1]);
 		w1[i].val = mergeBytes(answ[2], answ[3]);
@@ -279,7 +320,7 @@ void f(state& s, int rounds) {
 
 #pragma region Initialization
 
-void initializeState(state& s, byte key[DEFAULT_SIZE], byte iv[DEFAULT_SIZE]) {
+void initializeState(state& s, byte* key, byte* iv) {
 	byte niv[DEFAULT_SIZE], shuffledKey[DEFAULT_SIZE], xoredValue[DEFAULT_SIZE];
 	invert(iv, niv, DEFAULT_SIZE);
 	shuffleBytes(key, shuffledKey, DEFAULT_SIZE);
@@ -301,7 +342,7 @@ byte* fillByteArray(byte* bytes, const char* chars, unsigned long long& size) {
 	}
 
 	bytes = (byte*)realloc(bytes, sizeof(byte) * (size + 1));
-	bytes[size].val = 128;
+	bytes[size].val = defaultValue;
 	size++;
 	while (size % BITRATE != 0)
 	{
@@ -330,9 +371,15 @@ byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
 
 	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
 	{
-		xorBytes(s.bytes, plaintext + i, s.bytes, BITRATE);
-		copyBytes(ciphertext, s.bytes, BITRATE, i);
-		f(s, each(plaintext + i, BITRATE, 1));
+		cout << i << " STATE BEFORE: ";
+		printState(s);
+		xorBytes(s.bytes, plaintext + i, s.bytes, s.r);
+		copyBytes(ciphertext, s.bytes, s.r, i);
+		cout << i << " STATE AFTER XOR: ";
+		printState(s);
+		f(s, each(s.bytes + s.c, s.r, 1));
+		cout << i << " STATE AFTER F: ";
+		printState(s);
 
 		byte xoredValue[DEFAULT_SIZE];
 		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
@@ -350,10 +397,10 @@ byte* decrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
 
 	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
 	{
-		xorBytes(s.bytes, ciphertext + i, s.bytes, BITRATE);
-		copyBytes(plaintext, s.bytes, BITRATE, i);
-		copyBytes(s.bytes, ciphertext + i, BITRATE);
-		f(s, each(plaintext + i, BITRATE, 1));
+		xorBytes(s.bytes, ciphertext + i, s.bytes, s.r);
+		copyBytes(plaintext, s.bytes, s.r, i);
+		copyBytes(s.bytes, ciphertext + i, s.r);
+		f(s, each(s.bytes + s.c, s.r, 1));
 
 		byte xoredValue[DEFAULT_SIZE];
 		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
@@ -396,8 +443,9 @@ int main()
 	byte* key, * iv;
 	key = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	iv = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
-	state s = { BITRATE, STATE_SIZE - BITRATE };
-
+	state s;
+	s.r = BITRATE;
+	s.c = STATE_SIZE - BITRATE;
 	for (int i = 0; i < DEFAULT_SIZE; i++)
 	{
 		key[i].val = rand();
