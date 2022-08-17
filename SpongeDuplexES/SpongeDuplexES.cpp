@@ -164,7 +164,7 @@ int each(byte* bytes, unsigned long long size, unsigned long long blockSize) {
 	for (unsigned long long i = 0; i < size; i += blockSize)
 		sum += bytes[i].val;
 
-	int value = (sum % 47) + 16;
+	int value = (sum % 13) + 8;
 	return value;
 }
 
@@ -452,7 +452,7 @@ int main()
 	initializeState(s, key, iv);
 
 	char* adChar = readFile("associatedData.txt");
-	char* plaintextChar = readFile("plaintext.txt");
+	char* plaintextChar = readFile("plaintext20MB.txt");
 	unsigned long long adSize = strlen(adChar);
 	unsigned long long plaintextSize = strlen(plaintextChar);
 

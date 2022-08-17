@@ -23,7 +23,13 @@
     <Text Include="associatedData.txt">
       <Filter>Resource Files</Filter>
     </Text>
-    <Text Include="plaintext.txt">
+    <Text Include="plaintext20MB.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="plaintext10MB.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="plaintext1MB.txt">
       <Filter>Resource Files</Filter>
     </Text>
   </ItemGroup>
