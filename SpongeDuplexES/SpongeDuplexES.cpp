@@ -1,10 +1,12 @@
 #include <iostream>
 #include <fstream>
 #include <random>
+
 #define DEFAULT_SIZE 16
 #define BITRATE 32
 #define FILE_MAX_SIZE (1<<64) - 1
 #define STATE_SIZE 80
+
 using namespace std;
 
 #pragma region Data Types
@@ -26,7 +28,7 @@ typedef union {
 typedef struct {
 	int r;
 	int c;
-	byte bytes[STATE_SIZE];
+	byte* bytes;
 }state;
 #pragma endregion
 
@@ -81,25 +83,25 @@ void printState(state s)
 
 #pragma endregion
 
-void invert(byte value[], byte invertedValue[], unsigned long long size)
+#pragma region Helper Methods
+
+void copyBytes(byte* dest, byte* source, unsigned long long size, unsigned long long offset = 0) {
+	for (int i = 0; i < size; i++)
+		dest[offset + i].val = source[i].val;
+}
+
+void invert(byte* value, byte* invertedValue, unsigned long long size)
 {
+	char defaultValue = 128;
 	for (unsigned long long i = 0; i < size; i++) {
-		invertedValue[i].val = 0;
-		invertedValue[i].b0 = (value[i].b0) ^ 1;
-		invertedValue[i].b1 = (value[i].b1) ^ 1;
-		invertedValue[i].b2 = (value[i].b2) ^ 1;
-		invertedValue[i].b3 = (value[i].b3) ^ 1;
-		invertedValue[i].b4 = (value[i].b4) ^ 1;
-		invertedValue[i].b5 = (value[i].b5) ^ 1;
-		invertedValue[i].b6 = (value[i].b6) ^ 1;
-		invertedValue[i].b7 = (value[i].b7) ^ 1;
+		invertedValue[i].val = value[i].val ^ 128;
 	}
 }
 
-void updatePermutation(byte value, int v[4])
+void updatePermutation(byte value, int* v)
 {
-	int andSum = value.b4 & value.b5 & value.b6 & value.b7;
-	int orSum = value.b4 | value.b5 | value.b6 | value.b7;
+	bool andSum = (value.val == 128);
+	int orSum = (value.val == 0);
 
 	if (value.b5)
 	{
@@ -126,6 +128,31 @@ void updatePermutation(byte value, int v[4])
 		v[3] = aux;
 	}
 
+	if (value.b1)
+	{
+		int aux = v[0];
+		v[0] = v[2];
+		v[2] = aux;
+	}
+	if (value.b2)
+	{
+		int aux = v[1];
+		v[1] = v[3];
+		v[3] = aux;
+	}
+	if (value.b3)
+	{
+		int aux = v[0];
+		v[0] = v[1];
+		v[1] = aux;
+	}
+	if (value.b0)
+	{
+		int aux = v[2];
+		v[2] = v[3];
+		v[3] = aux;
+	}
+
 	if (andSum) {
 		v[0] = 3;
 		v[1] = 1;
@@ -133,7 +160,7 @@ void updatePermutation(byte value, int v[4])
 		v[3] = 2;
 	}
 
-	if (orSum == 0) {
+	if (orSum) {
 		v[0] = 0;
 		v[1] = 2;
 		v[2] = 3;
@@ -141,40 +168,43 @@ void updatePermutation(byte value, int v[4])
 	}
 }
 
-void shuffleBytes(byte value[], byte shuffledValue[], unsigned long long size) {
+void shuffleBytes(byte* value, byte* shuffledValue, unsigned long long size) {
 	int blockSize = size / 4;
 	int v[4] = { 0, 1, 2, 3 };
-	for (unsigned long long i = blockSize - 1; i < size; i += blockSize)
+	for (unsigned long long i = 0; i < size; i += blockSize)
 		updatePermutation(value[i], v);
 
-	memcpy(shuffledValue, value + v[0] * blockSize, sizeof(byte) * blockSize);
-	memcpy(shuffledValue + blockSize, value + v[1] * blockSize, sizeof(byte) * blockSize);
-	memcpy(shuffledValue + 2 * blockSize, value + v[2] * blockSize, sizeof(byte) * blockSize);
-	memcpy(shuffledValue + 3 * blockSize, value + v[3] * blockSize, sizeof(byte) * blockSize);
+	copyBytes(shuffledValue, value + v[0] * blockSize, blockSize);
+	copyBytes(shuffledValue, value + v[1] * blockSize, blockSize, blockSize);
+	copyBytes(shuffledValue, value + v[2] * blockSize, blockSize, 2 * blockSize);
+	copyBytes(shuffledValue, value + v[3] * blockSize, blockSize, 3 * blockSize);
 }
 
-void xorBytes(byte value1[], byte value2[], byte xoredValue[], unsigned long long size)
+void xorBytes(byte* value1, byte* value2, byte* xoredValue, unsigned long long size)
 {
 	for (unsigned long long i = 0; i < size; i++) {
 		xoredValue[i].val = value1[i].val ^ value2[i].val;
 	}
 }
 
-int each(byte bytes[], unsigned long long size, unsigned long long blockSize) {
+int each(byte* bytes, unsigned long long size, unsigned long long blockSize) {
 	int sum = 0;
-	for (unsigned long long i = blockSize - 1; i < size; i += blockSize)
-		sum += bytes[i].b7;
+	for (unsigned long long i = 0; i < size; i += blockSize)
+		sum += bytes[i].val;
 
-	return sum + 4;
+	return (sum % 107) + 11;
 }
 
-void clearBytes(byte bytes[], unsigned long long size) {
+void clearBytes(byte* bytes, unsigned long long size) {
 	for (unsigned long long i = 0; i < size; i++) {
 		bytes[i].val = 0;
 	}
 }
 
-//finished but keep it for reference
+#pragma endregion
+
+#pragma region F Function
+
 int sbox(byte input) {
 	byte output = { 0 };
 	int x[4] = { input.b4, input.b5, input.b6, input.b7 };
@@ -188,6 +218,7 @@ int sbox(byte input) {
 
 void sbox(state& s) {
 	int blockSize = STATE_SIZE / 4;
+
 	byte w0[STATE_SIZE / 4], w1[STATE_SIZE / 4], w2[STATE_SIZE / 4], w3[STATE_SIZE / 4], defVal[STATE_SIZE / 4];
 	for (unsigned long long i = 0; i < blockSize; i++)
 		defVal[i].val = 128;
@@ -198,12 +229,12 @@ void sbox(state& s) {
 	xorBytes(w1, s.bytes + 3 * blockSize, w1, blockSize);
 	xorBytes(s.bytes + blockSize, s.bytes + 2 * blockSize, w2, blockSize);
 	xorBytes(w2, s.bytes + 3 * blockSize, w2, blockSize);
-	memcpy(w3, s.bytes, sizeof(byte) * blockSize);
+	copyBytes(w3, s.bytes, blockSize);
 
-	memcpy(s.bytes, w0, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 1 * blockSize, w1, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 2 * blockSize, w2, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 3 * blockSize, w3, sizeof(byte) * blockSize);
+	copyBytes(s.bytes, w0, blockSize);
+	copyBytes(s.bytes, w1, blockSize, 1 * blockSize);
+	copyBytes(s.bytes, w2, blockSize, 2 * blockSize);
+	copyBytes(s.bytes, w3, blockSize, 3 * blockSize);
 }
 
 void pbox(state& s) {
@@ -214,10 +245,10 @@ void pbox(state& s) {
 	shuffleBytes(s.bytes + 2 * blockSize, w2, blockSize);
 	shuffleBytes(s.bytes + 3 * blockSize, w3, blockSize);
 
-	memcpy(s.bytes, w0, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 1 * blockSize, w1, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 2 * blockSize, w2, sizeof(byte) * blockSize);
-	memcpy(s.bytes + 3 * blockSize, w3, sizeof(byte) * blockSize);
+	copyBytes(s.bytes, w0, blockSize);
+	copyBytes(s.bytes, w1, blockSize, 1 * blockSize);
+	copyBytes(s.bytes, w2, blockSize, 2 * blockSize);
+	copyBytes(s.bytes, w3, blockSize, 3 * blockSize);
 }
 
 void f(state& s, int rounds) {
@@ -232,17 +263,21 @@ void f(state& s, int rounds) {
 		pbox(s);
 }
 
+#pragma endregion
+
+#pragma region Initialization
+
 void initializeState(state& s, byte key[DEFAULT_SIZE], byte iv[DEFAULT_SIZE]) {
 	byte niv[DEFAULT_SIZE], shuffledKey[DEFAULT_SIZE], xoredValue[DEFAULT_SIZE];
 	invert(iv, niv, DEFAULT_SIZE);
 	shuffleBytes(key, shuffledKey, DEFAULT_SIZE);
 	xorBytes(key, iv, xoredValue, DEFAULT_SIZE);
 
-	memcpy(s.bytes, key, sizeof(byte) * DEFAULT_SIZE);
-	memcpy(s.bytes + DEFAULT_SIZE, niv, sizeof(byte) * DEFAULT_SIZE);
-	memcpy(s.bytes + 2 * DEFAULT_SIZE, shuffledKey, sizeof(byte) * DEFAULT_SIZE);
-	memcpy(s.bytes + 3 * DEFAULT_SIZE, iv, sizeof(byte) * DEFAULT_SIZE);
-	memcpy(s.bytes + 4 * DEFAULT_SIZE, xoredValue, sizeof(byte) * DEFAULT_SIZE);
+	copyBytes(s.bytes, key, DEFAULT_SIZE);
+	copyBytes(s.bytes, niv, DEFAULT_SIZE, DEFAULT_SIZE);
+	copyBytes(s.bytes, shuffledKey, DEFAULT_SIZE, 2 * DEFAULT_SIZE);
+	copyBytes(s.bytes, iv, DEFAULT_SIZE, 3 * DEFAULT_SIZE);
+	copyBytes(s.bytes, xoredValue, DEFAULT_SIZE, 4 * DEFAULT_SIZE);
 
 	f(s, each(s.bytes, STATE_SIZE, 2));
 }
@@ -273,6 +308,10 @@ void processAD(state& s, byte ad[], unsigned long long adSize) {
 	}
 }
 
+#pragma endregion
+
+#pragma region Crypt
+
 byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigned long long plaintextSize) {
 	byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintextSize / BITRATE));
 	unsigned long long auxPos = 0;
@@ -280,24 +319,48 @@ byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
 	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
 	{
 		xorBytes(s.bytes, plaintext + i, s.bytes, BITRATE);
-		memcpy(ciphertext + i, s.bytes, sizeof(byte) * BITRATE);
+		copyBytes(ciphertext, s.bytes, BITRATE, i);
 		f(s, each(plaintext + i, BITRATE, 1));
-
-		f(s, each(plaintext, plaintextSize, 1));
 
 		byte xoredValue[DEFAULT_SIZE];
 		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
 
-		memcpy(aux + auxPos * DEFAULT_SIZE, xoredValue, DEFAULT_SIZE);
+		copyBytes(aux, xoredValue, DEFAULT_SIZE, auxPos * DEFAULT_SIZE);
 		auxPos++;
 	}
 
 	return aux;
 }
 
-byte* getTag(state& s, byte aux[], byte ciphertext[], unsigned long long plaintextSize) {
+byte* decrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigned long long plaintextSize) {
+	byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintextSize / BITRATE));
+	unsigned long long auxPos = 0;
+
+	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
+	{
+		xorBytes(s.bytes, ciphertext + i, s.bytes, BITRATE);
+		copyBytes(plaintext, s.bytes, BITRATE, i);
+		copyBytes(s.bytes, ciphertext + i, BITRATE);
+		f(s, each(plaintext + i, BITRATE, 1));
+
+		byte xoredValue[DEFAULT_SIZE];
+		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
+
+		copyBytes(aux, xoredValue, DEFAULT_SIZE, auxPos * DEFAULT_SIZE);
+		auxPos++;
+	}
+
+	return aux;
+}
+
+#pragma endregion
+
+#pragma region Tag
+
+byte* getTag(state& s, byte* aux, byte* ciphertext, unsigned long long plaintextSize) {
 	f(s, each(s.bytes, DEFAULT_SIZE, 1));
-	byte t[DEFAULT_SIZE], * shuffledAux;
+	byte* t, * shuffledAux;
+	t = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	unsigned long long auxSize = DEFAULT_SIZE * (plaintextSize / BITRATE);
 	shuffledAux = (byte*)malloc(sizeof(byte) * auxSize);
 	shuffleBytes(aux, shuffledAux, auxSize);
@@ -307,38 +370,23 @@ byte* getTag(state& s, byte aux[], byte ciphertext[], unsigned long long plainte
 	return t;
 }
 
-byte* decrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigned long long plaintextSize) {
-	byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintextSize / BITRATE));
-	unsigned long long auxPos = 0;
-	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
-	{
-		xorBytes(s.bytes, ciphertext + i, s.bytes, BITRATE);
-		memcpy(plaintext + i, s.bytes, sizeof(byte) * BITRATE);
-		f(s, each(plaintext + i, BITRATE, 1));
-
-		byte xoredValue[DEFAULT_SIZE];
-		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
-
-		memcpy(aux + auxPos * DEFAULT_SIZE, xoredValue, DEFAULT_SIZE);
-		auxPos++;
-	}
-
-	return aux;
-}
-
-bool validTag(byte receivedTag[], byte tag[]) {
+bool validTag(byte* receivedTag, byte* tag) {
 	for (int i = 0; i < DEFAULT_SIZE; i++)
 		if (receivedTag[i].val != tag[i].val)
 			return false;
 
 	return true;
 }
+#pragma endregion
 
 int main()
 {
-	//get initial values and initialize state
-	byte key[DEFAULT_SIZE], iv[DEFAULT_SIZE];
+	byte* key, * iv;
+	key = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
+	iv = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	state s = { BITRATE, STATE_SIZE - BITRATE };
+	s.bytes = (byte*)malloc(sizeof(byte) * STATE_SIZE);
+
 	for (int i = 0; i < DEFAULT_SIZE; i++)
 	{
 		key[i].val = rand();
@@ -347,22 +395,11 @@ int main()
 
 	initializeState(s, key, iv);
 
-	//read associated data and plaintext
 	char* adChar = readFile("associatedData.txt");
 	char* plaintextChar = readFile("plaintext.txt");
-
-	if (strlen(adChar) > FILE_MAX_SIZE || strlen(plaintextChar) > FILE_MAX_SIZE)
-	{
-		cout << "PLAINTEXT OR ASSOCIATED DATA TOO BIG";
-		free(adChar);
-		free(plaintextChar);
-		return 0;
-	}
-
 	unsigned long long adSize = strlen(adChar);
 	unsigned long long plaintextSize = strlen(plaintextChar);
 
-	//preprocess associated data and plaintext
 	byte* ad, * plaintext, * ciphertext;
 	ad = (byte*)malloc(sizeof(byte) * adSize);
 	ad = fillByteArray(ad, adChar, adSize);
@@ -370,11 +407,10 @@ int main()
 	plaintext = fillByteArray(plaintext, plaintextChar, plaintextSize);
 	ciphertext = (byte*)malloc(sizeof(byte) * (plaintextSize + DEFAULT_SIZE));
 
-	//encrypt
 	processAD(s, ad, adSize);
 	byte* aux = encrypt(s, key, plaintext, ciphertext, plaintextSize);
 	byte* t = getTag(s, aux, ciphertext, plaintextSize);
-	memcpy(ciphertext + plaintextSize, t, sizeof(byte) * DEFAULT_SIZE);
+	copyBytes(ciphertext, t, DEFAULT_SIZE, plaintextSize);
 
 	cout << "PLAINTEXT TEXT: ";
 	printChars(plaintext, plaintextSize);
@@ -382,24 +418,31 @@ int main()
 	printBytes(ciphertext, plaintextSize + DEFAULT_SIZE);
 	cout << "TAG BYTES: ";
 	printBytes(t, DEFAULT_SIZE);
+	cout << "AUX BYTES: ";
+	printBytes(aux, DEFAULT_SIZE * (plaintextSize / BITRATE));
+	cout << endl << endl;
 
-	clearBytes(plaintext, plaintextSize);
-
-	//decrypt
 	initializeState(s, key, iv);
 	processAD(s, ad, adSize);
 	free(aux);
+	clearBytes(plaintext, plaintextSize);
+
 	aux = decrypt(s, key, plaintext, ciphertext, plaintextSize);
 	byte* rt = getTag(s, aux, ciphertext, plaintextSize);
 	cout << "PLAINTEXT TEXT: ";
 	printChars(plaintext, plaintextSize);
 	cout << "TAG BYTES: ";
 	printBytes(rt, DEFAULT_SIZE);
+	cout << "AUX BYTES: ";
+	printBytes(aux, DEFAULT_SIZE * (plaintextSize / BITRATE));
 	if (validTag(t, rt))
 		cout << "VALID TAG";
 	else
 		cout << "INVALID TAG";
 
+	free(key);
+	free(iv);
+	free(s.bytes);
 	free(ad);
 	free(adChar);
 	free(plaintext);
