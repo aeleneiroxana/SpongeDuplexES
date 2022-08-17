@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <random>
+#include <chrono>
 
 #define DEFAULT_SIZE 16
 #define BITRATE 32
@@ -35,25 +36,20 @@ typedef struct {
 #pragma endregion
 
 #pragma region Reading Data
-char* readFile(const char fileName[]) {
-	ifstream in(fileName);
-	size_t size = 1;
-	char* str;
-	char ch;
-	size_t len = 0;
-	str = (char*)realloc(NULL, sizeof(*str) * size);
-	if (!str)return str;
-	while (in.get(ch)) {
-		str[len++] = ch;
-		if (len == size) {
-			str = (char*)realloc(str, sizeof(*str) * (size += 16));
-			if (!str)return str;
-		}
-	}
-	str[len++] = '\0';
 
-	return (char*)realloc(str, sizeof(*str) * len);
+char* readFile(const char fileName[]) {
+	ifstream t;
+	int length;
+	t.open(fileName);
+	t.seekg(0, std::ios::end);
+	length = t.tellg();
+	t.seekg(0, std::ios::beg);
+	char* str;
+	str = (char*)malloc(sizeof(char) * length + 5);
+	t.read(str, length);
+	return str;
 }
+
 #pragma endregion
 
 #pragma region Printing Data
@@ -371,15 +367,9 @@ byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
 
 	for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
 	{
-		cout << i << " STATE BEFORE: ";
-		printState(s);
 		xorBytes(s.bytes, plaintext + i, s.bytes, s.r);
 		copyBytes(ciphertext, s.bytes, s.r, i);
-		cout << i << " STATE AFTER XOR: ";
-		printState(s);
 		f(s, each(s.bytes + s.c, s.r, 1));
-		cout << i << " STATE AFTER F: ";
-		printState(s);
 
 		byte xoredValue[DEFAULT_SIZE];
 		xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
@@ -475,6 +465,7 @@ int main()
 	unsigned long long adSize = strlen(adChar);
 	unsigned long long plaintextSize = strlen(plaintextChar);
 
+	auto start = std::chrono::high_resolution_clock::now();
 	byte* ad, * plaintext, * ciphertext;
 	ad = (byte*)malloc(sizeof(byte) * adSize);
 	ad = fillByteArray(ad, adChar, adSize);
@@ -487,12 +478,16 @@ int main()
 	byte* t = getTag(s, aux, ciphertext, plaintextSize);
 	copyBytes(ciphertext, t, DEFAULT_SIZE, plaintextSize);
 
-	cout << "PLAINTEXT TEXT: ";
+	auto stop = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	cout << "Encryption elapsed time: " << duration.count() << " ms" << endl;
+	/*cout << "PLAINTEXT TEXT: ";
 	printChars(plaintext, plaintextSize);
 	cout << "CIPHERTEXT BYTES: ";
 	printBytes(ciphertext, plaintextSize + DEFAULT_SIZE);
-	cout << endl << endl;
+	cout << endl << endl;*/
 
+	start = std::chrono::high_resolution_clock::now();
 	initializeState(s, key, iv);
 	processAD(s, ad, adSize);
 	free(aux);
@@ -500,13 +495,16 @@ int main()
 
 	aux = decrypt(s, key, plaintext, ciphertext, plaintextSize);
 	byte* rt = getTag(s, aux, ciphertext, plaintextSize);
-	cout << "PLAINTEXT TEXT: ";
-	printChars(plaintext, plaintextSize);
+	/*cout << "PLAINTEXT TEXT: ";
+	printChars(plaintext, plaintextSize);*/
 	if (validTag(t, rt))
 		cout << "VALID TAG";
 	else
 		cout << "INVALID TAG";
 
+	stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	cout << endl << "Decryption elapsed time: " << duration.count() << " ms" << endl;
 	free(key);
 	free(iv);
 	free(ad);
