@@ -193,22 +193,13 @@ int mergeBytes(byte msb, byte lsb) {
 
 #pragma region F Function
 
-int sbox(byte input, bool lsb = true) {
+int sbox(byte input) {
 	byte output = { 0 };
 	int x[4];
-	if (lsb)
-	{
-		x[0] = input.b4;
-		x[1] = input.b5;
-		x[2] = input.b6;
-		x[3] = input.b7;
-	}
-	else {
-		x[0] = input.b0;
-		x[1] = input.b1;
-		x[2] = input.b2;
-		x[3] = input.b3;
-	}
+	x[0] = input.b4;
+	x[1] = input.b5;
+	x[2] = input.b6;
+	x[3] = input.b7;
 	output.b4 = x[0] ^ x[1] ^ x[3] ^ 1;
 	output.b5 = x[0] ^ x[2] ^ x[3];
 	output.b6 = x[1] ^ x[2] ^ x[3];
