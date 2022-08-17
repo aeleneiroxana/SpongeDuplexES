@@ -441,14 +441,30 @@ bool validTag(byte* receivedTag, byte* tag) {
 int main()
 {
 	byte* key, * iv;
+	srand((unsigned)time(0));
 	key = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
 	iv = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
+	key[0].val = 23;
+	key[1].val = 240;
+	key[2].val = 183;
+	key[3].val = 122;
+	key[4].val = 168;
+	key[5].val = 178;
+	key[6].val = 70;
+	key[7].val = 59;
+	key[8].val = 188;
+	key[9].val = 63;
+	key[10].val = 35;
+	key[11].val = 13;
+	key[12].val = 117;
+	key[13].val = 136;
+	key[14].val = 103;
+	key[15].val = 178;
 	state s;
 	s.r = BITRATE;
 	s.c = STATE_SIZE - BITRATE;
 	for (int i = 0; i < DEFAULT_SIZE; i++)
 	{
-		key[i].val = rand();
 		iv[i].val = rand();
 	}
 
