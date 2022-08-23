@@ -2,6 +2,7 @@
 #include <fstream>
 #include <random>
 #include <chrono>
+#include <cmath>
 
 #define DEFAULT_SIZE 16
 #define BITRATE 32
@@ -32,43 +33,57 @@ typedef union
 
 typedef struct
 {
-    int r;
-    int c;
+    int bitrate;
+    int capacity;
     byte bytes[STATE_SIZE];
 }state;
+
+typedef struct
+{
+    unsigned long long size;
+    byte* value;
+} bitstring;
+
 #pragma endregion
 
 #pragma region Reading Data
 
-char* readFile(const char fileName[])
+bitstring readFile(const char fileName[])
 {
     ifstream t;
     int length;
-    t.open(fileName);
+    t.open(fileName, std::ifstream::binary);
     t.seekg(0, std::ios::end);
     length = t.tellg();
     t.seekg(0, std::ios::beg);
     char* str;
-    str = (char*)malloc(sizeof(char) * length + 5);
+    str = (char*)calloc(length, sizeof(char));
     t.read(str, length);
-    return str;
+    bitstring aux;
+    aux.size = length;
+    aux.value = (byte*)calloc(aux.size, sizeof(byte));
+    for (int i = 0; i < aux.size; i++)
+        aux.value[i].val = str[i];
+
+    free(str);
+    return aux;
 }
 
 #pragma endregion
 
 #pragma region Printing Data
 
-void printBytes(byte value[], unsigned long long size)
+void printBytes(bitstring str)
 {
-    for (unsigned long long i = 0; i < size; i++)
-        printf("%3d ", value[i].val);
+    for (unsigned long long i = 0; i < str.size; i++)
+        printf("%3d ", str.value[i].val);
     cout << endl;
 }
 
-void printChars(byte value[], unsigned long long size)
+void printChars(bitstring str)
 {
-    for (unsigned long long i = 0; i < size; i++)
-        cout << value[i].val;
+    for (unsigned long long i = 0; i < str.size; i++)
+        cout << str.value[i].val;
     cout << endl;
 }
 
@@ -169,7 +184,7 @@ void xorBytes(byte* value1, byte* value2, byte* xoredValue, unsigned long long s
     }
 }
 
-int each(byte* bytes, unsigned long long size, unsigned long long blockSize)
+int count(byte* bytes, unsigned long long size, unsigned long long blockSize)
 {
     int sum = 0;
     for (unsigned long long i = 0; i < size; i += blockSize)
@@ -179,12 +194,19 @@ int each(byte* bytes, unsigned long long size, unsigned long long blockSize)
     return value;
 }
 
-void clearBytes(byte* bytes, unsigned long long size)
+void clearBytes(bitstring str)
 {
-    for (unsigned long long i = 0; i < size; i++)
+    for (unsigned long long i = 0; i < str.size; i++)
     {
-        bytes[i].val = 0;
+        str.value[i].val = 0;
     }
+}
+
+void clearState(state& s)
+{
+    for (int i = 0; i < STATE_SIZE; i++)
+        s.bytes[i].val = 0;
+
 }
 
 int mergeBytes(byte msb, byte lsb)
@@ -343,34 +365,29 @@ void initializeState(state& s, byte* key, byte* iv)
     copyBytes(s.bytes, iv, DEFAULT_SIZE, 3 * DEFAULT_SIZE);
     copyBytes(s.bytes, xoredValue, DEFAULT_SIZE, 4 * DEFAULT_SIZE);
 
-    f(s, each(s.bytes, STATE_SIZE, 2));
+    f(s, count(s.bytes, STATE_SIZE, 2));
 }
 
-byte* fillByteArray(byte* bytes, const char* chars, unsigned long long& size)
+void fillByteArray(bitstring& str)
 {
-    for (unsigned long long i = 0; i < size; i++)
-    {
-        bytes[i].val = chars[i];
-    }
 
-    bytes = (byte*)realloc(bytes, sizeof(byte) * (size + 1));
-    bytes[size].val = defaultValue;
-    size++;
-    while (size % BITRATE != 0)
+    str.value = (byte*)realloc(str.value, sizeof(byte) * (str.size + 1));
+    str.value[str.size].val = defaultValue + 1;
+    str.size++;
+    while (str.size % BITRATE != 0)
     {
-        bytes = (byte*)realloc(bytes, sizeof(byte) * (size + 1));
-        bytes[size].val = 0;
-        size++;
+        str.value = (byte*)realloc(str.value, sizeof(byte) * (str.size + 1));
+        str.value[str.size].val = 0;
+        str.size++;
     }
-    return bytes;
 }
 
-void processAD(state& s, byte ad[], unsigned long long adSize)
+void processAD(state& s, bitstring ad)
 {
-    for (unsigned long long i = 0; i < adSize; i += BITRATE)
+    for (unsigned long long i = 0; i < ad.size; i += BITRATE)
     {
-        xorBytes(s.bytes, ad + i, s.bytes, BITRATE);
-        f(s, each(ad + i, BITRATE, 1));
+        xorBytes(s.bytes, ad.value + i, s.bytes, BITRATE);
+        f(s, count(ad.value + i, BITRATE, 1));
     }
 }
 
@@ -378,19 +395,19 @@ void processAD(state& s, byte ad[], unsigned long long adSize)
 
 #pragma region Crypt
 
-byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigned long long plaintextSize)
+byte* encrypt(state& s, byte key[], bitstring plaintext, bitstring ciphertext)
 {
-    byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintextSize / BITRATE));
+    byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintext.size / BITRATE));
     unsigned long long auxPos = 0;
 
-    for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
+    for (unsigned long long i = 0; i < plaintext.size; i += BITRATE)
     {
-        xorBytes(s.bytes, plaintext + i, s.bytes, s.r);
-        copyBytes(ciphertext, s.bytes, s.r, i);
-        f(s, each(s.bytes + s.c, s.r, 1));
+        xorBytes(s.bytes, plaintext.value + i, s.bytes, s.bitrate);
+        copyBytes(ciphertext.value, s.bytes, s.bitrate, i);
+        f(s, count(s.bytes + s.capacity, s.bitrate, 1));
 
         byte xoredValue[DEFAULT_SIZE];
-        xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
+        xorBytes(key, s.bytes + s.bitrate, xoredValue, DEFAULT_SIZE);
 
         copyBytes(aux, xoredValue, DEFAULT_SIZE, auxPos * DEFAULT_SIZE);
         auxPos++;
@@ -399,20 +416,20 @@ byte* encrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
     return aux;
 }
 
-byte* decrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigned long long plaintextSize)
+byte* decrypt(state& s, byte key[], bitstring plaintext, bitstring ciphertext)
 {
-    byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintextSize / BITRATE));
+    byte* aux = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE * (plaintext.size / BITRATE));
     unsigned long long auxPos = 0;
 
-    for (unsigned long long i = 0; i < plaintextSize; i += BITRATE)
+    for (unsigned long long i = 0; i < plaintext.size; i += BITRATE)
     {
-        xorBytes(s.bytes, ciphertext + i, s.bytes, s.r);
-        copyBytes(plaintext, s.bytes, s.r, i);
-        copyBytes(s.bytes, ciphertext + i, s.r);
-        f(s, each(s.bytes + s.c, s.r, 1));
+        xorBytes(s.bytes, ciphertext.value + i, s.bytes, s.bitrate);
+        copyBytes(plaintext.value, s.bytes, s.bitrate, i);
+        copyBytes(s.bytes, ciphertext.value + i, s.bitrate);
+        f(s, count(s.bytes + s.capacity, s.bitrate, 1));
 
         byte xoredValue[DEFAULT_SIZE];
-        xorBytes(key, s.bytes + s.r, xoredValue, DEFAULT_SIZE);
+        xorBytes(key, s.bytes + s.bitrate, xoredValue, DEFAULT_SIZE);
 
         copyBytes(aux, xoredValue, DEFAULT_SIZE, auxPos * DEFAULT_SIZE);
         auxPos++;
@@ -427,13 +444,13 @@ byte* decrypt(state& s, byte key[], byte plaintext[], byte ciphertext[], unsigne
 
 byte* getTag(state& s, byte* aux, byte* ciphertext, unsigned long long plaintextSize)
 {
-    f(s, each(s.bytes, DEFAULT_SIZE, 1));
+    f(s, count(s.bytes, DEFAULT_SIZE, 1));
     byte* t, * shuffledAux;
     t = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
     unsigned long long auxSize = DEFAULT_SIZE * (plaintextSize / BITRATE);
     shuffledAux = (byte*)malloc(sizeof(byte) * auxSize);
     shuffleBytes(aux, shuffledAux, auxSize);
-    xorBytes(s.bytes + s.r, shuffledAux, t, DEFAULT_SIZE);
+    xorBytes(s.bytes + s.bitrate, shuffledAux, t, DEFAULT_SIZE);
 
     free(shuffledAux);
     return t;
@@ -449,15 +466,117 @@ bool validTag(byte* receivedTag, byte* tag)
 }
 #pragma endregion
 
+#pragma region Cryptoanalysis
+
+double calculateEntropy(bitstring str)
+{
+    double entropy = 0;
+
+    unsigned char* frequency = (unsigned char*)calloc(256, sizeof(unsigned char));
+
+    for (int i = 0; i < str.size; i++)
+        frequency[str.value[i].val]++;
+
+    for (int i = 0; i < 256; i++)
+        if (frequency[i] != 0)
+        {
+            double p = (double)frequency[i] / str.size;
+            entropy = entropy + p * (log(p) / log(2));
+        }
+
+    free(frequency);
+
+    return -entropy;
+}
+
+double histogramUniformity(bitstring str)
+{
+    unsigned char* frequency = (unsigned char*)calloc(256, sizeof(unsigned char));
+
+    for (int i = 0; i < str.size; i++)
+        frequency[str.value[i].val]++;
+
+    double chi_square = 0;
+
+    double estimated = str.size / 256.0;
+
+    for (int i = 0; i < 256; i++)
+        chi_square += pow(frequency[i] - estimated, 2) / estimated;
+
+    return chi_square;
+}
+
+double uaci(bitstring plaintext, bitstring ciphertext)
+{
+    double UACI = 0;
+
+
+    for (unsigned int i = 0; i < plaintext.size; i++)
+        UACI += abs(plaintext.value[i].val - ciphertext.value[i].val);
+
+
+    return (UACI / (plaintext.size * 255)) * 100;
+}
+
+double npcr(bitstring plaintext, bitstring ciphertext)
+{
+    double NPCR = 0;
+
+
+    for (unsigned int i = 0; i < plaintext.size; i++)
+        NPCR += (plaintext.value[i].val == ciphertext.value[i].val) ? 0 : 1;
+
+    return (NPCR / plaintext.size) * 100;
+}
+
+
+double correlationCoefficient(bitstring plaintext, bitstring ciphertext)
+{
+    double e_in = 0;
+    double d_in = 0;
+    double e_out = 0;
+    double d_out = 0;
+    double cov = 0;
+
+    for (unsigned int i = 0; i < plaintext.size; i++)
+    {
+        e_in += plaintext.value[i].val;
+        e_out += +ciphertext.value[i].val;
+    }
+
+    e_in /= plaintext.size;
+    e_out /= plaintext.size;
+
+
+    for (unsigned int i = 0; i < plaintext.size; i++)
+    {
+        d_in += pow(plaintext.value[i].val - e_in, 2);
+        d_out += pow(ciphertext.value[i].val - e_out, 2);
+        cov += (plaintext.value[i].val - e_in) * (ciphertext.value[i].val - e_out);
+    }
+
+    d_in /= plaintext.size;
+    d_out /= plaintext.size;
+    cov /= plaintext.size;
+
+    return cov / (sqrt(d_in * d_out));
+}
+
+
+#pragma endregion
+
+
 int main()
 {
+    bool shouldDecrypt = false;
     byte* key, * iv;
     srand((unsigned)time(0));
     key = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
     iv = (byte*)malloc(sizeof(byte) * DEFAULT_SIZE);
     state s;
-    s.r = BITRATE;
-    s.c = STATE_SIZE - BITRATE;
+    s.bitrate = BITRATE;
+    s.capacity = STATE_SIZE - BITRATE;
+    clearState(s);
     for (int i = 0; i < DEFAULT_SIZE; i++)
     {
         iv[i].val = rand();
@@ -466,50 +585,52 @@ int main()
 
     initializeState(s, key, iv);
 
-    char* adChar = readFile("associatedData.txt");
-    char* plaintextChar = readFile("plaintext.txt");
-    unsigned long long adSize = strlen(adChar);
-    unsigned long long plaintextSize = strlen(plaintextChar);
+    bitstring ad = readFile("associatedData.txt");
+    bitstring plaintext = readFile("plaintext.txt");
+    bitstring ciphertext;
 
-    byte* ad, * plaintext, * ciphertext;
-    ad = (byte*)malloc(sizeof(byte) * adSize);
-    ad = fillByteArray(ad, adChar, adSize);
-    plaintext = (byte*)malloc(sizeof(byte) * plaintextSize);
-    plaintext = fillByteArray(plaintext, plaintextChar, plaintextSize);
-    ciphertext = (byte*)malloc(sizeof(byte) * (plaintextSize + DEFAULT_SIZE));
+    fillByteArray(ad);
+    fillByteArray(plaintext);
+    ciphertext.size = plaintext.size + DEFAULT_SIZE;
+    ciphertext.value = (byte*)calloc(ciphertext.size, sizeof(byte));
 
-    processAD(s, ad, adSize);
-    byte* aux = encrypt(s, key, plaintext, ciphertext, plaintextSize);
-    byte* t = getTag(s, aux, ciphertext, plaintextSize);
-    copyBytes(ciphertext, t, DEFAULT_SIZE, plaintextSize);
+    processAD(s, ad);
+    byte* aux = encrypt(s, key, plaintext, ciphertext);
 
-    cout << "PLAINTEXT TEXT: ";
-    printChars(plaintext, plaintextSize);
-    cout << "CIPHERTEXT BYTES: ";
-    printBytes(ciphertext, plaintextSize + DEFAULT_SIZE);
-    cout << endl << endl;
+    byte* t = getTag(s, aux, ciphertext.value, plaintext.size);
+    copyBytes(ciphertext.value, t, DEFAULT_SIZE, plaintext.size);
 
-    initializeState(s, key, iv);
-    processAD(s, ad, adSize);
-    free(aux);
-    clearBytes(plaintext, plaintextSize);
+    cout << "Plaintext entropy: " << calculateEntropy(plaintext) << endl;
+    cout << "Ciphertext entropy: " << calculateEntropy(ciphertext) << endl;
 
-    aux = decrypt(s, key, plaintext, ciphertext, plaintextSize);
-    byte* rt = getTag(s, aux, ciphertext, plaintextSize);
-    cout << "PLAINTEXT TEXT: ";
-    printChars(plaintext, plaintextSize);
-    if (validTag(t, rt))
-        cout << "VALID TAG";
-    else
-        cout << "INVALID TAG";
+    cout << "Plaintext histogram: " << histogramUniformity(plaintext) << endl;
+    cout << "Ciphertext histogram: " << histogramUniformity(ciphertext) << endl;
 
+    cout << "UACI: " << uaci(plaintext, ciphertext) << endl;
+    cout << "NPCR: " << npcr(plaintext, ciphertext) << endl;
+
+    cout << "Correlation coefficient: " << correlationCoefficient(plaintext, ciphertext) << endl;
+
+    if (shouldDecrypt)
+    {
+
+        initializeState(s, key, iv);
+        processAD(s, ad);
+        free(aux);
+        clearBytes(plaintext);
+
+        aux = decrypt(s, key, plaintext, ciphertext);
+        byte* rt = getTag(s, aux, ciphertext.value, plaintext.size);
+        if (validTag(t, rt))
+            cout << "VALID TAG";
+        else
+            cout << "INVALID TAG";
+    }
     free(key);
     free(iv);
-    free(ad);
-    free(adChar);
-    free(plaintext);
-    free(plaintextChar);
-    free(ciphertext);
+    free(ad.value);
+    free(plaintext.value);
+    free(ciphertext.value);
 
     return 0;
 }
