@@ -32,5 +32,8 @@
     <Text Include="plaintext1MB.txt">
       <Filter>Resource Files</Filter>
     </Text>
+    <Text Include="plaintext.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
   </ItemGroup>
 </Project>

@@ -452,7 +452,7 @@ int main()
 	initializeState(s, key, iv);
 
 	char* adChar = readFile("associatedData.txt");
-	char* plaintextChar = readFile("plaintext20MB.txt");
+	char* plaintextChar = readFile("plaintext.txt");
 	unsigned long long adSize = strlen(adChar);
 	unsigned long long plaintextSize = strlen(plaintextChar);
 
@@ -472,11 +472,11 @@ int main()
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
 	cout << "Encryption elapsed time: " << duration.count() << " ms" << endl;
-	/*cout << "PLAINTEXT TEXT: ";
+	cout << "PLAINTEXT TEXT: ";
 	printChars(plaintext, plaintextSize);
 	cout << "CIPHERTEXT BYTES: ";
 	printBytes(ciphertext, plaintextSize + DEFAULT_SIZE);
-	cout << endl << endl;*/
+	cout << endl << endl;
 
 	start = std::chrono::high_resolution_clock::now();
 	initializeState(s, key, iv);
@@ -486,8 +486,8 @@ int main()
 
 	aux = decrypt(s, key, plaintext, ciphertext, plaintextSize);
 	byte* rt = getTag(s, aux, ciphertext, plaintextSize);
-	/*cout << "PLAINTEXT TEXT: ";
-	printChars(plaintext, plaintextSize);*/
+	cout << "PLAINTEXT TEXT: ";
+	printChars(plaintext, plaintextSize);
 	if (validTag(t, rt))
 		cout << "VALID TAG";
 	else
