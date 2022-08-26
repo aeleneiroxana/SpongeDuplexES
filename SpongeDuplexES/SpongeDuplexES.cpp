@@ -581,97 +581,55 @@ int main()
     double ktestMin = 0.93;
     double ktestMax = 0.97;
     int kPassedTests = 0;
-    ofstream kout("kstestResults.txt");
+    
 
 
-    for (int count = 1; count <= 500; count++)
+    for (int i = 0; i < DEFAULT_SIZE; i++)
     {
-        int passedTests = 0;
-        char filename[105];
-        snprintf(filename, 105, "results%d.txt", count);
-        ofstream out(filename);
-        out << "Key\tIv\tPlaintext size\tAssociated data size\tPlaintext entropy";
-        out << "\tCiphertext entropy\tPlaintext histogram";
-        out << "\tCiphertext histogram\tUACI\tNPCR\tCorrelation coefficient\n";
-
-        cout << "STARTING FOR KEY " << count << " AT ";
-        std::time_t t = std::time(0);   // get time now
-        std::tm now;
-        localtime_s(&now, &t);
-        cout << (now.tm_year + 1900) << '-' << (now.tm_mon + 1) << '-' << now.tm_mday << " " << now.tm_hour << ":" << now.tm_min << endl;
-        for (int i = 0; i < DEFAULT_SIZE; i++)
-        {
-            iv[i].val = rand();
-            key[i].val = rand();
-        }
-
-        for (int i = 0; i < DEFAULT_SIZE; i++)
-            out << HEX(key[i].val);
-        out << "\t";
-        for (int i = 0; i < DEFAULT_SIZE; i++)
-            out << HEX(iv[i].val);
-        out << "\n";
-
-        out << std::dec;
-        for (int plaintextCount = 1; plaintextCount <= 500; plaintextCount++)
-        {
-            bitstring ad, plaintext;
-
-            unsigned long long adSize = rand() % 5000000 + 15;
-            unsigned long long plaintextSize = rand() % 5000000 + 15;
-
-            ad.size = adSize;
-            ad.value = (byte*)calloc(ad.size, sizeof(byte));
-            plaintext.size = plaintextSize;
-            plaintext.value = (byte*)calloc(plaintext.size, sizeof(byte));
-
-            for (int i = 0; i < ad.size; i++)
-                ad.value[i].val = rand();
-
-            for (int i = 0; i < plaintext.size; i++)
-                plaintext.value[i].val = rand();
-
-            out << "\t\t" << plaintext.size << "\t" << ad.size << "\t";
-
-            bitstring ciphertext;
-
-            clearState(s);
-            initializeState(s, key, iv);
-            fillByteArray(ad);
-            fillByteArray(plaintext);
-            ciphertext.size = plaintext.size + DEFAULT_SIZE;
-            ciphertext.value = (byte*)calloc(ciphertext.size, sizeof(byte));
-
-            processAD(s, ad);
-            byte* aux = encrypt(s, key, plaintext, ciphertext);
-
-            byte* t = getTag(s, aux, ciphertext.value, plaintext.size);
-            copyBytes(ciphertext.value, t, DEFAULT_SIZE, plaintext.size);
-
-            double ciphertextEntropy = calculateEntropy(ciphertext);
-            if (ciphertextEntropy > entropyMin)
-                passedTests++;
-
-            out << calculateEntropy(plaintext) << "\t" << ciphertextEntropy  << "\t";
-            out << histogramUniformity(plaintext) << "\t" << histogramUniformity(ciphertext) << "\t";
-            out << uaci(plaintext, ciphertext) << "\t" << npcr(plaintext, ciphertext) << "\t";
-            out << correlationCoefficient(plaintext, ciphertext) << endl;
-
-
-            delete(ad.value);
-            delete(plaintext.value);
-            delete(ciphertext.value);
-        }
-
-        double ktestValue = ((double)passedTests) / 500;
-        kout << count << "\t" << ktestValue << endl;
-        if (ktestMin <= ktestValue && ktestValue <= ktestMax)
-            kPassedTests++;
-
+        iv[i].val = rand();
+        key[i].val = rand();
     }
 
-    kout << "Final Ktest: " << ((double)kPassedTests) / 500;
+    bitstring ad, plaintext;
 
+    unsigned long long adSize = 1000000;
+    unsigned long long plaintextSize = 1000000;
+
+    ad.size = adSize;
+    ad.value = (byte*)calloc(ad.size, sizeof(byte));
+    plaintext.size = plaintextSize;
+    plaintext.value = (byte*)calloc(plaintext.size, sizeof(byte));
+
+    for (int i = 0; i < ad.size; i++)
+        ad.value[i].val = rand();
+
+    for (int i = 0; i < plaintext.size; i++)
+        plaintext.value[i].val = rand();
+
+    cout << "STARTED" << endl;
+
+    bitstring ciphertext;
+
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    clearState(s);
+    initializeState(s, key, iv);
+    fillByteArray(ad);
+    fillByteArray(plaintext);
+    ciphertext.size = plaintext.size + DEFAULT_SIZE;
+    ciphertext.value = (byte*)calloc(ciphertext.size, sizeof(byte));
+
+    processAD(s, ad);
+    byte* aux = encrypt(s, key, plaintext, ciphertext);
+
+    byte* t = getTag(s, aux, ciphertext.value, plaintext.size);
+    copyBytes(ciphertext.value, t, DEFAULT_SIZE, plaintext.size);
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << "[s]" << std::endl;
+
+
+    delete(ad.value);
+    delete(plaintext.value);
+    delete(ciphertext.value);
     delete(key);
     delete(iv);
 
