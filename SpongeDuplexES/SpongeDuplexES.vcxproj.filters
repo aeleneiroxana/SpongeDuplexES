@@ -35,5 +35,6 @@
     <Text Include="plaintext.txt">
       <Filter>Resource Files</Filter>
     </Text>
+    <Text Include="results.txt" />
   </ItemGroup>
 </Project>

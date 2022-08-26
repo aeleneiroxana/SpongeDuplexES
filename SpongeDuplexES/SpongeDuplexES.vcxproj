@@ -139,6 +139,7 @@
     <Text Include="plaintext20MB.txt" />
     <Text Include="plaintext10MB.txt" />
     <Text Include="plaintext1MB.txt" />
+    <Text Include="results.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
